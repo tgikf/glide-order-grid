@@ -1,0 +1,17 @@
+{
+  "files": {
+    "main.css": "/glide-order-grid/static/css/main.9f3d3126.css",
+    "main.js": "/glide-order-grid/static/js/main.74481099.js",
+    "static/js/299.ba692456.chunk.js": "/glide-order-grid/static/js/299.ba692456.chunk.js",
+    "static/js/336.9a955d1e.chunk.js": "/glide-order-grid/static/js/336.9a955d1e.chunk.js",
+    "index.html": "/glide-order-grid/index.html",
+    "main.9f3d3126.css.map": "/glide-order-grid/static/css/main.9f3d3126.css.map",
+    "main.74481099.js.map": "/glide-order-grid/static/js/main.74481099.js.map",
+    "299.ba692456.chunk.js.map": "/glide-order-grid/static/js/299.ba692456.chunk.js.map",
+    "336.9a955d1e.chunk.js.map": "/glide-order-grid/static/js/336.9a955d1e.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.9f3d3126.css",
+    "static/js/main.74481099.js"
+  ]
+}
