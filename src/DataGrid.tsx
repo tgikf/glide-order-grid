@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "@glideapps/glide-data-grid/dist/index.css";
 import {
   useColumnSort,
@@ -7,12 +7,12 @@ import {
 import {
   CustomCell,
   DataEditor,
-  DataEditorProps,
   GetRowThemeCallback,
   GridCell,
   GridCellKind,
   GridColumn,
   GridMouseEventArgs,
+  GridSelection,
   HeaderClickedEventArgs,
   Item,
   Highlight,
@@ -74,9 +74,24 @@ export function DataGrid<T extends Record<string, any>>({
       width: colDef.width ?? 150,
     }))
   );
-  const [highlightRegions, setHighlightRegions] = useState<Highlight[]>([]);
+  const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(undefined);
+  const [previousData, setPreviousData] = useState<T[]>([]);
+  
+  interface ChangeInfo {
+    isNew?: boolean;
+    updatedFields?: Map<string, {
+      prevValue: any;
+      newValue: any;
+    }>;
+    timestamp: number;
+  }
+  
+  const [changedOrders, setChangedOrders] = useState<Map<string, ChangeInfo>>(new Map());
 
-  // Update column titles when sort changes
+  const rawData = useMemo(() => {
+    return typeof data === 'function' ? data({}) : data;
+  }, [data]);
+
   useEffect(() => {
     setColumns((prev) =>
       prev.map((col) => {
@@ -95,102 +110,307 @@ export function DataGrid<T extends Record<string, any>>({
       })
     );
   }, [columnDefs, sortColumn, sortDirection]);
+  
+  useEffect(() => {
+    setGridSelection(undefined);
+  }, [sortColumn, sortDirection, rawData]);
 
-  const rawData = data;
+  useEffect(() => {
+    if (previousData.length === 0) {
+      setPreviousData(JSON.parse(JSON.stringify(rawData)));
+      return;
+    }
+    
+    const prevDataMap = new Map<string, T>();
+    
+    for (let i = 0; i < previousData.length; i++) {
+      const item = previousData[i];
+      const id = (item as any).id;
+      if (id !== undefined && id !== null) {
+        prevDataMap.set(String(id), item);
+      }
+    }
+    
+    const newChanges = new Map<string, ChangeInfo>();
+    const now = Date.now();
+    
+    for (let i = 0; i < rawData.length; i++) {
+      const item = rawData[i];
+      const id = (item as any).id;
+      if (id === undefined || id === null) continue;
+      
+      const idStr = String(id);
+      
+      if (!prevDataMap.has(idStr)) {
+        newChanges.set(idStr, {
+          isNew: true,
+          timestamp: now
+        });
+        continue;
+      }
+      
+      const prevItem = prevDataMap.get(idStr);
+      const updatedFields = new Map<string, { prevValue: any; newValue: any }>();
+      
+      for (let j = 0; j < columns.length; j++) {
+        const col = columns[j];
+        if (!col.id){
+          console.error('Failed column comparison, id missing', col)
+          continue
+        }
+        const fieldId = col.id;
+        const currentValue = item[fieldId as keyof T];
+        const previousValue = prevItem?.[fieldId as keyof T];
+        
+        if (JSON.stringify(currentValue) !== JSON.stringify(previousValue)) {
+          const colIndex = columns.findIndex(col => col.id === fieldId);
+          
+          updatedFields.set(fieldId, {
+            prevValue: previousValue,
+            newValue: currentValue
+          });
+        }
+      }
+      
+      if (updatedFields.size > 0) {
+        newChanges.set(idStr, {
+          updatedFields,
+          timestamp: now
+        });
+      }
+    }
+    
+    setChangedOrders(prev => {
+      const merged = new Map(prev);
+      
+      const entries = Array.from(newChanges.entries());
+      for (let i = 0; i < entries.length; i++) {
+        const [id, changeInfo] = entries[i];
+        
+        if (merged.has(id)) {
+          const existing = merged.get(id)!;
+          
+          merged.set(id, {
+            isNew: changeInfo.isNew || existing.isNew,
+            updatedFields: changeInfo.updatedFields 
+              ? new Map([...(existing.updatedFields || new Map()), ...(changeInfo.updatedFields)])
+              : existing.updatedFields,
+            timestamp: changeInfo.timestamp
+          });
+        } else {
+          merged.set(id, changeInfo);
+        }
+      }
+      
+      return merged;
+    });
+    
+    setPreviousData(JSON.parse(JSON.stringify(rawData)));
+  }, [rawData, columns]);
+  
   const onItemHovered = useCallback((args: GridMouseEventArgs) => {
     const [_, row] = args.location;
     setHoverRow(args.kind !== "cell" ? undefined : row);
   }, []);
+  
+  const onGridSelectionChange = useCallback((newSelection: GridSelection) => {
+    setGridSelection(newSelection);
+  }, []);
 
-  const sortedData = useMemo(() => {
-    if (!sortColumn) return rawData;
-
-    const rootItems = treeConfig
-      ? rawData.filter((item) => item[treeConfig.depthAccessor] === 0)
-      : rawData;
-
-    const sortedRoots = [...rootItems].sort((a, b) => {
-      const aValue = a[sortColumn.id as keyof typeof a];
-      const bValue = b[sortColumn.id as keyof typeof b];
-
+  const createSortComparator = useCallback((column: GridColumn, direction: "asc" | "desc") => {
+    return (a: T, b: T) => {
+      const aValue = a[column.id as keyof typeof a];
+      const bValue = b[column.id as keyof typeof b];
+      
       if (aValue == null && bValue == null) return 0;
       if (aValue == null) return 1;
       if (bValue == null) return -1;
-
-      const modifier = sortDirection === "asc" ? 1 : -1;
-      return aValue < bValue
-        ? -1 * modifier
-        : aValue > bValue
-        ? 1 * modifier
-        : 0;
-    });
-
-    if (!treeConfig) return sortedRoots;
-
-    const result: T[] = [];
-    const addItemWithChildren = (item: T) => {
-      result.push(item);
-      const childIds = item[treeConfig.childIdsAccessor] as string[];
-      const children = childIds
-        .map((childId) =>
-          rawData.find((o) => o[treeConfig.idAccessor] === childId)
-        )
-        .filter((child): child is T => child !== undefined);
-
-      children.forEach((child) => addItemWithChildren(child));
+      
+      const modifier = direction === "asc" ? 1 : -1;
+      return aValue < bValue ? -1 * modifier : aValue > bValue ? 1 * modifier : 0;
     };
+  }, []);
 
-    sortedRoots.forEach(addItemWithChildren);
-    return result;
-  }, [rawData, sortColumn, sortDirection, treeConfig]);
-
-  const visibleData = useMemo(() => {
-    if (!treeConfig) return sortedData;
-
-    const visibleItems: T[] = [];
-    const processItem = (item: T) => {
-      visibleItems.push(item);
-      const childIds = item[treeConfig.childIdsAccessor] as string[];
-
-      if (
-        childIds.length > 0 &&
-        expandedRows.has(item[treeConfig.idAccessor])
-      ) {
-        for (const possibleChild of rawData) {
-          if (childIds.includes(possibleChild[treeConfig.idAccessor])) {
-            processItem(possibleChild);
+  const processedData = useMemo(() => {
+    if (!treeConfig) {
+      if (!sortColumn) return rawData;
+      
+      return [...rawData].sort(createSortComparator(sortColumn, sortDirection));
+    }
+    
+    if (treeConfig) {
+      const config = treeConfig!;
+      
+      const itemsById = new Map<string, T>();
+      const childrenByParentId = new Map<string, T[]>();
+      
+      for (let i = 0; i < rawData.length; i++) {
+        const item = rawData[i];
+        const id = item[config.idAccessor];
+        if (id !== undefined && id !== null) {
+          itemsById.set(String(id), item);
+          
+          const parentId = item.parentId;
+          if (parentId !== undefined && parentId !== null) {
+            const parentIdStr = String(parentId);
+            if (!childrenByParentId.has(parentIdStr)) {
+              childrenByParentId.set(parentIdStr, []);
+            }
+            childrenByParentId.get(parentIdStr)!.push(item);
           }
         }
       }
-    };
+      
+      const rootItems: T[] = [];
+      for (let i = 0; i < rawData.length; i++) {
+        const item = rawData[i];
+        if (item[config.depthAccessor] === 0) {
+          rootItems.push(item);
+        }
+      }
+    
+      if (sortColumn) {
+        rootItems.sort(createSortComparator(sortColumn, sortDirection));
+      }
+      
+      const result: T[] = [];
+      
+      function processItem(item: T, isVisible: boolean) {
+        if (isVisible) {
+          result.push(item);
+        }
+        
+        const id = item[config.idAccessor];
+        if (id === undefined || id === null) return;
+        
+        const childIds = item[config.childIdsAccessor] as string[];
+        
+        const children: T[] = [];
+        for (let i = 0; i < childIds.length; i++) {
+          const childId = childIds[i];
+          const child = itemsById.get(childId);
+          if (child) {
+            children.push(child);
+          }
+        }
+        
+        if (sortColumn && children.length > 0) {
+          children.sort(createSortComparator(sortColumn, sortDirection));
+        }
+        
+        const idStr = String(id);
+        const isExpanded = expandedRows.has(idStr);
+        for (let i = 0; i < children.length; i++) {
+          processItem(children[i], isVisible && isExpanded);
+        }
+      }
+      
+      for (let i = 0; i < rootItems.length; i++) {
+        processItem(rootItems[i], true);
+      }
+      
+      return result;
+    }
+    
+    return rawData;
+  }, [rawData, sortColumn, sortDirection, treeConfig, expandedRows, createSortComparator]);
 
-    sortedData
-      .filter((item) => item[treeConfig.depthAccessor] === 0)
-      .forEach(processItem);
 
-    return visibleItems;
-  }, [sortedData, expandedRows, rawData, treeConfig]);
+  const handleDrawCell = useCallback((args: any, drawCell: Function) => {
+    const { ctx, rect, col, row } = args;
+    
+    const item = processedData[row];
+    if (!item) {
+      drawCell();
+      return;
+    }
+    
+    const colId = columns[col]?.id;
+    if (!colId) {
+      drawCell();
+      return;
+    }
+    
+    const orderId = item.id;
+    const changeInfo = changedOrders.get(String(orderId));
+    
+    if (changeInfo) {
+      const isNewOrder = changeInfo.isNew;
+      const isUpdatedField = changeInfo.updatedFields?.has(colId);
+      
+      if (isNewOrder || isUpdatedField) {
+        const now = Date.now();
+        const elapsed = now - changeInfo.timestamp;
+        const flashDuration = 5000;
+        
+        if (elapsed < flashDuration) {
+          const fadeOutStart = flashDuration * 0.7;
+          let opacity = 0.7;
+          
+          if (elapsed > fadeOutStart) {
+            const fadeProgress = (elapsed - fadeOutStart) / (flashDuration - fadeOutStart);
+            opacity = 0.7 * (1 - fadeProgress);
+          }
+          
+          const flashPeriod = 1500;
+          const flashProgress = (elapsed % flashPeriod) / flashPeriod;
+          
+          const pulseOpacity = Math.sin(flashProgress * Math.PI) * opacity;
+          
+          ctx.save();
+          
+          const inset = 1;
+          ctx.globalAlpha = pulseOpacity;
+          ctx.fillStyle = '#00796b';
+          ctx.fillRect(
+            rect.x + inset, 
+            rect.y + inset, 
+            rect.width - (inset * 2), 
+            rect.height - (inset * 2)
+          );
+          
+          ctx.globalAlpha = 1.0;
+          ctx.restore();
+          
+          args.requestAnimationFrame();
+        }
+      }
+    }
+    
+    drawCell();
+  }, [processedData, columns, changedOrders]);
 
-  const flashCell = (row: number, col: number) => {
-    const region: Highlight = {
-      color: "#FFFBCC", // flash color
-      range: { x: col, y: row, width: 1, height: 1 },
-    };
-    setHighlightRegions((prev) => [...prev, region]);
-    setTimeout(() => {
-      setHighlightRegions((prev) => prev.filter((r) => r !== region));
-    }, 1000);
-  };
-
-  // useEffect(() => {
-  //   flashCell(1, 1);
-  // }, [visibleData]);
-
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const expirationTime = 2000;
+      
+      setChangedOrders(prev => {
+        const updated = new Map(prev);
+        let hasChanges = false;
+        
+        const entries = Array.from(updated.entries());
+        for (let i = 0; i < entries.length; i++) {
+          const [id, info] = entries[i];
+          
+          if (now - info.timestamp > expirationTime) {
+            updated.delete(id);
+            hasChanges = true;
+          }
+        }
+        
+        return hasChanges ? updated : prev;
+      });
+    }, 500);
+    
+    return () => clearInterval(cleanupInterval);
+  }, []);
+  
   const getData = useCallback(
     (cell: Item): GridCell => {
       const [col, row] = cell;
       const colId = columns[col]?.id;
-      const item = visibleData[row];
+      const item = processedData[row];
 
       if (!item || !colId) {
         return {
@@ -204,7 +424,6 @@ export function DataGrid<T extends Record<string, any>>({
       );
       const value = item[colId];
 
-      // Get base cell from custom renderer if provided
       let baseCell: GridCell = columnDef?.renderer
         ? columnDef.renderer(value, item)
         : {
@@ -216,9 +435,32 @@ export function DataGrid<T extends Record<string, any>>({
           };
 
       if (treeConfig && colId === treeConfig.treeColumnKey) {
+        const config = treeConfig!;
+        
         const hasChildren =
-          (item[treeConfig.childIdsAccessor] as string[]).length > 0;
-        const isExpanded = expandedRows.has(item[treeConfig.idAccessor]);
+          (item[config.childIdsAccessor] as string[]).length > 0;
+        const isExpanded = expandedRows.has(item[config.idAccessor]);
+        
+        const createToggleHandler = () => {
+          return () => {
+            setExpandedRows((prev) => {
+              const next = new Set(prev);
+              if (isExpanded) {
+                const idToDelete = item[config.idAccessor];
+                if (idToDelete !== undefined && idToDelete !== null) {
+                  next.delete(String(idToDelete));
+                }
+              } else {
+                const idToAdd = item[config.idAccessor];
+                if (idToAdd !== undefined && idToAdd !== null) {
+                  next.add(String(idToAdd));
+                }
+              }
+              return next;
+            });
+            return undefined;
+          };
+        };
 
         if (
           baseCell.kind === GridCellKind.Custom &&
@@ -232,18 +474,7 @@ export function DataGrid<T extends Record<string, any>>({
               ...customCell.data,
               canOpen: hasChildren,
               isOpen: isExpanded,
-              onClickOpener: () => {
-                setExpandedRows((prev) => {
-                  const next = new Set(prev);
-                  if (isExpanded) {
-                    next.delete(item[treeConfig.idAccessor]);
-                  } else {
-                    next.add(item[treeConfig.idAccessor]);
-                  }
-                  return next;
-                });
-                return undefined;
-              },
+              onClickOpener: createToggleHandler(),
             },
           };
         }
@@ -256,28 +487,17 @@ export function DataGrid<T extends Record<string, any>>({
           data: {
             kind: "tree-view-cell",
             text: String(value),
-            depth: item[treeConfig.depthAccessor],
+            depth: item[config.depthAccessor],
             canOpen: hasChildren,
             isOpen: isExpanded,
-            onClickOpener: () => {
-              setExpandedRows((prev) => {
-                const next = new Set(prev);
-                if (isExpanded) {
-                  next.delete(item[treeConfig.idAccessor]);
-                } else {
-                  next.add(item[treeConfig.idAccessor]);
-                }
-                return next;
-              });
-              return undefined;
-            },
+            onClickOpener: createToggleHandler(),
           },
         } as CustomCell<any>;
       }
 
       return baseCell;
     },
-    [expandedRows, visibleData, columns, columnDefs, treeConfig]
+    [expandedRows, processedData, columns, columnDefs, treeConfig]
   );
 
   const moveArgs = useMoveableColumns({
@@ -289,14 +509,14 @@ export function DataGrid<T extends Record<string, any>>({
     columns: moveArgs.columns,
     getCellContent: moveArgs.getCellContent,
     sort:
-      sortColumn && visibleData.length > 0
+      sortColumn && processedData.length > 0
         ? {
             column: sortColumn,
             direction: sortDirection,
-            mode: "default", // Changed from "smart" to "default" to avoid parsing issues
+            mode: "default",
           }
         : undefined,
-    rows: visibleData.length,
+    rows: processedData.length,
   });
 
   const getRowThemeOverride = useCallback<GetRowThemeCallback>(
@@ -313,9 +533,12 @@ export function DataGrid<T extends Record<string, any>>({
   return (
     <DataEditor
       {...sortArgs}
+      drawCell={handleDrawCell}
       columns={moveArgs.columns}
       columnSelect={"none"}
       getCellContent={moveArgs.getCellContent}
+      gridSelection={gridSelection}
+      onGridSelectionChange={onGridSelectionChange}
       onHeaderClicked={(col, event: HeaderClickedEventArgs) => {
         event.preventDefault();
         const column = moveArgs.columns[col];
@@ -342,7 +565,7 @@ export function DataGrid<T extends Record<string, any>>({
         });
       }}
       getCellsForSelection={true}
-      rows={visibleData.length}
+      rows={processedData.length}
       verticalBorder={false}
       customRenderers={treeConfig?.isTreeGrid ? [TreeViewCell] : undefined}
       onItemHovered={onItemHovered}
@@ -380,6 +603,27 @@ export function DataGrid<T extends Record<string, any>>({
       smoothScrollY={true}
       height={"100%"}
       width={"100%"}
+      rightElement={
+        <div style={{
+          height: "100%",
+          padding: "8px 12px",
+          display: "flex",
+          justifyContent: "start",
+          flexDirection: "column",
+          backgroundColor: "#0F233E",
+          color: "#DDDDDD",
+          fontFamily: "Overpass, sans-serif",
+          fontSize: "13px",
+          fontWeight: 600,
+          borderLeft: "1px solid rgba(255, 255, 255, 0.1)"
+        }}>
+          <span>Displayed rows: {processedData.length}</span>
+          <span>Total rows: {rawData.length}</span>
+        </div>
+      }
+      rightElementProps={{
+        sticky: true
+      }}
     />
   );
 }

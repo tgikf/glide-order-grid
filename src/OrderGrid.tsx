@@ -4,17 +4,14 @@ import { DataGrid, DataGridColumn, TreeGridConfig } from "./DataGrid";
 import { useseUpdatingOrders } from "./useUpdatingOrders";
 import { FXOrder, generateTestData } from "./utils";
 
-// OrderGrid component
 export const OrderGrid = () => {
   const [orders, setOrders] = useState<FXOrder[]>([]);
 
-  // Generate data on component mount - create 5000 orders
   useEffect(() => {
-    setOrders(generateTestData(10000, 2000));
+    setOrders(generateTestData(12000, 2000));
   }, []);
 
-  // generate order every 5 sec, fill after 2.5 sec
-  // useseUpdatingOrders(setOrders, 2000, 1000);
+  useseUpdatingOrders(setOrders, 3000, 7000);
 
   const columns: DataGridColumn<FXOrder>[] = useMemo(
     () => [

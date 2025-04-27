@@ -1,4 +1,3 @@
-// Define FX Order Type
 export interface FXOrder {
   id: string;
   depth: number;
@@ -20,7 +19,6 @@ export interface FXOrder {
   notes: string;
 }
 
-// Utility function to generate random currency pairs
 const generateCurrencyPair = () => {
   const baseCurrencies = [
     "USD",
@@ -46,7 +44,6 @@ const generateCurrencyPair = () => {
   let base = baseCurrencies[Math.floor(Math.random() * baseCurrencies.length)];
   let quote;
 
-  // Ensure we don't have the same currency for base and quote
   do {
     quote = quoteCurrencies[Math.floor(Math.random() * quoteCurrencies.length)];
   } while (base === quote);
@@ -54,20 +51,17 @@ const generateCurrencyPair = () => {
   return `${base}/${quote}`;
 };
 
-// Utility function to generate random decimal number within range
 const randomDecimal = (min: number, max: number, decimals: number = 4) => {
   const num = Math.random() * (max - min) + min;
   return Number(num.toFixed(decimals));
 };
 
-// Utility function to generate random date within range
 const randomDate = (start: Date, end: Date) => {
   return new Date(
     start.getTime() + Math.random() * (end.getTime() - start.getTime())
   );
 };
 
-// Generate random trader name
 const generateTrader = () => {
   const firstNames = [
     "John",
@@ -96,7 +90,6 @@ const generateTrader = () => {
   return `${firstName} ${lastName}`;
 };
 
-// Generate random venue
 const generateVenue = () => {
   const venues = [
     "JPM",
@@ -113,7 +106,6 @@ const generateVenue = () => {
   return venues[Math.floor(Math.random() * venues.length)];
 };
 
-// Generate random account
 const generateAccount = () => {
   const accounts = [
     "Main",
@@ -130,7 +122,6 @@ const generateAccount = () => {
   return accounts[Math.floor(Math.random() * accounts.length)];
 };
 
-// Generate random strategy
 const generateStrategy = () => {
   const strategies = [
     "Momentum",
@@ -145,7 +136,6 @@ const generateStrategy = () => {
   return strategies[Math.floor(Math.random() * strategies.length)];
 };
 
-// Generate test data
 export const generateTestData = (
   count: number = 30000,
   rootCount: number = 7500
@@ -155,13 +145,9 @@ export const generateTestData = (
   const startDate = new Date();
   startDate.setMonth(startDate.getMonth() - 1);
 
-  // If rootCount is greater than count, cap it to ensure child orders
-  // Always ensure we have at least 5000 roots or the requested number (whichever is higher)
   const minRequiredRoots = Math.max(5000, rootCount);
-  // But also ensure we don't exceed 30% of total count to leave room for children
   const actualRootCount = Math.min(minRequiredRoots, Math.floor(count * 0.3));
 
-  // Create all root orders first
   for (let i = 0; i < actualRootCount; i++) {
     const id = `order-${i}`;
     const currencyPair = generateCurrencyPair();
@@ -189,7 +175,7 @@ export const generateTestData = (
       id,
       depth: 0,
       parentId: null,
-      childIds: [], // Will be populated later if it has children
+      childIds: [],
       currencyPair,
       side,
       orderQuantity,
@@ -207,20 +193,14 @@ export const generateTestData = (
     });
   }
 
-  // Helper function to create child orders with richer hierarchy
   const createChildOrders = (
     parentOrder: FXOrder,
     level: number,
     maxChildren: number,
     remainingCount: number
   ): FXOrder[] => {
-    if (level > 5 || remainingCount <= 0) return []; // Maximum 5 levels deep (0-4) or no more orders allowed
+    if (level > 5 || remainingCount <= 0) return [];
 
-    // Adjust child counts based on level to ensure rich hierarchy
-    // Level 1 (direct children of root): 2-5 children
-    // Level 2: 2-4 children
-    // Level 3: 1-3 children
-    // Level 4: 0-2 children
     let minChildCount, maxPossibleChildren;
 
     switch (level) {
@@ -245,7 +225,6 @@ export const generateTestData = (
         maxPossibleChildren = 1;
     }
 
-    // Don't exceed the maximum allowed children or remaining count
     const childCount = Math.min(
       Math.max(
         minChildCount,
@@ -258,7 +237,6 @@ export const generateTestData = (
 
     const children: FXOrder[] = [];
 
-    // If we're not creating any children, return empty array
     if (childCount === 0) return children;
 
     let remainingForChildren = remainingCount - childCount;
@@ -287,7 +265,7 @@ export const generateTestData = (
         id: childId,
         depth: level,
         parentId: parentOrder.id,
-        childIds: [], // Will be populated if it has children
+        childIds: [],
         currencyPair: parentOrder.currencyPair,
         side: parentOrder.side,
         orderQuantity: childQuantity,
@@ -304,7 +282,7 @@ export const generateTestData = (
             1000 * 60 * (Math.random() * 60 + 30)
         ),
         trader: parentOrder.trader,
-        venue: generateVenue(), // Might be different venue
+        venue: generateVenue(),
         account: parentOrder.account,
         strategy: parentOrder.strategy,
         notes: `Child order for ${parentOrder.id}`,
@@ -312,14 +290,10 @@ export const generateTestData = (
 
       children.push(childOrder);
 
-      // Recursively create grandchildren if we still have orders available
       if (level < 5 && remainingForChildren > 0) {
-        // Calculate maximum grandchildren for this branch based on level
-        // Allocate more remaining orders to lower levels
         let grandchildAllocation;
 
         if (level === 1) {
-          // Level 1 children get more resources for their descendants
           grandchildAllocation = Math.max(
             5,
             Math.floor(remainingForChildren / (childCount * 0.7))
@@ -349,11 +323,9 @@ export const generateTestData = (
             grandchildrenLimit
           );
 
-          // Update child IDs
           childOrder.childIds = grandchildren.map((g) => g.id);
           children.push(...grandchildren);
 
-          // Update remaining count for next children
           remainingForChildren -= grandchildren.length;
         }
       }
@@ -362,11 +334,8 @@ export const generateTestData = (
     return children;
   };
 
-  // Calculate remaining orders to distribute (after root orders)
   const remainingOrdersCount = Math.max(0, count - actualRootCount);
 
-  // Ensure we have enough orders for children - at least 2.5x the number of roots that will have children
-  // This ensures enough children to make the tree structure meaningful
   const minimumChildOrders = actualRootCount * 2.5;
 
   if (remainingOrdersCount < minimumChildOrders) {
@@ -375,11 +344,8 @@ export const generateTestData = (
     );
   }
 
-  // Distribute orders to create rich hierarchy
   const targetRootsWithChildren = Math.floor(actualRootCount * 0.9);
 
-  // Make sure we have enough orders for a rich hierarchy
-  // This gives us an average of 3 children per root with children
   const ordersNeededForRichHierarchy = targetRootsWithChildren * 3;
 
   if (remainingOrdersCount < ordersNeededForRichHierarchy) {
@@ -388,16 +354,13 @@ export const generateTestData = (
     );
   }
 
-  // Calculate how many roots can actually have children based on remaining order count
   const maxRootsWithChildren = Math.min(
     targetRootsWithChildren,
-    Math.floor(remainingOrdersCount / 3) // Ensure at least 3 orders per root with children on average
+    Math.floor(remainingOrdersCount / 3)
   );
 
   const rootsWithChildrenCount = Math.max(1, maxRootsWithChildren);
 
-  // Allocate remaining order count among roots that will have children
-  // Give more orders to each root to ensure rich hierarchy
   const ordersPerRoot = Math.max(
     5,
     Math.floor(remainingOrdersCount / rootsWithChildrenCount)
@@ -405,20 +368,15 @@ export const generateTestData = (
   let extraOrders =
     remainingOrdersCount - ordersPerRoot * rootsWithChildrenCount;
 
-  // Add children to the selected root orders
   const allChildren: FXOrder[] = [];
 
-  // First select which roots will have children - prioritize lower-numbered orders
-  // but also include some higher-numbered ones randomly
   const rootIndicesWithChildren: number[] = [];
 
-  // Always include some of the first orders (30% of total roots with children)
   const guaranteedLowRoots = Math.floor(rootsWithChildrenCount * 0.3);
   for (let i = 0; i < guaranteedLowRoots && i < actualRootCount; i++) {
     rootIndicesWithChildren.push(i);
   }
 
-  // Randomly select the rest from the remaining roots
   const remainingRoots = [...Array(actualRootCount).keys()]
     .filter((i) => !rootIndicesWithChildren.includes(i))
     .sort(() => Math.random() - 0.5);
@@ -429,25 +387,20 @@ export const generateTestData = (
     rootIndicesWithChildren.push(remainingRoots[i]);
   }
 
-  // Shuffle to mix low and high order IDs
   rootIndicesWithChildren.sort(() => Math.random() - 0.5);
 
-  // Now create children for the selected root orders
   for (let i = 0; i < rootIndicesWithChildren.length; i++) {
     const rootIndex = rootIndicesWithChildren[i];
     const rootOrder = orders[rootIndex];
 
-    // Calculate how many orders this root can have
     let ordersForThisRoot = ordersPerRoot;
     if (extraOrders > 0) {
-      // Add some extra orders to early roots to ensure deeper hierarchies
       const bonus = Math.min(extraOrders, 5);
       ordersForThisRoot += bonus;
       extraOrders -= bonus;
     }
 
     if (ordersForThisRoot > 0) {
-      // Create children for this root
       const children = createChildOrders(
         rootOrder,
         1,
@@ -455,7 +408,6 @@ export const generateTestData = (
         ordersForThisRoot
       );
 
-      // Update root order with direct children IDs
       rootOrder.childIds = children
         .filter((c) => c.parentId === rootOrder.id)
         .map((c) => c.id);
@@ -464,7 +416,6 @@ export const generateTestData = (
     }
   }
 
-  // Add all children to the orders array
   orders.push(...allChildren);
 
   console.log(
@@ -481,7 +432,6 @@ export const generateTestData = (
     }`
   );
 
-  // Count orders by level
   const level1Orders = allChildren.filter((o) => o.depth === 1).length;
   const level2Orders = allChildren.filter((o) => o.depth === 2).length;
   const level3Orders = allChildren.filter((o) => o.depth === 3).length;
@@ -496,7 +446,6 @@ export const generateTestData = (
   console.log(`- Level 4: ${level4Orders}`);
   console.log(`- Level 5+: ${level5OrHigher}`);
 
-  // Look at specific orders
   const order48 = orders.find((o) => o.id === "order-48");
   const order49 = orders.find((o) => o.id === "order-49");
   const order50 = orders.find((o) => o.id === "order-50");
@@ -505,7 +454,6 @@ export const generateTestData = (
   console.log(`Order-49 has ${order49?.childIds.length || 0} direct children`);
   console.log(`Order-50 has ${order50?.childIds.length || 0} direct children`);
 
-  // Count child stats
   const rootsWithChildren = orders.filter(
     (o) => o.depth === 0 && o.childIds.length > 0
   );

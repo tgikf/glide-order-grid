@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { FXOrder } from "./utils"; // adjust as needed
+import { FXOrder } from "./utils";
 
 export function useseUpdatingOrders(
   setOrders: React.Dispatch<React.SetStateAction<FXOrder[]>>,
