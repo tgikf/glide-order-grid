@@ -8,28 +8,32 @@
     "starter"
   ],
   "main": "src/index.tsx",
+  "homepage": "https://tgikf.github.io/glide-order-grid",
   "dependencies": {
-    "loader-utils": "3.2.1",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-scripts": "5.0.1",
     "@glideapps/glide-data-grid": "6.0.3",
     "@glideapps/glide-data-grid-cells": "6.0.3",
     "@glideapps/glide-data-grid-source": "6.0.3",
+    "loader-utils": "3.2.1",
     "lodash": "4.17.21",
+    "marked": "15.0.11",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
     "react-responsive-carousel": "3.2.23",
-    "marked": "15.0.11"
+    "react-scripts": "5.0.1"
   },
   "devDependencies": {
     "@types/react": "18.2.38",
     "@types/react-dom": "18.2.15",
+    "gh-pages": "^6.3.0",
     "typescript": "4.4.4"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test --env=jsdom",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build"
   },
   "browserslist": [
     ">0.2%",
