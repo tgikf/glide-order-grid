@@ -1,8 +1,11 @@
-import { GridCellKind } from "@glideapps/glide-data-grid";
-import { useEffect, useMemo, useState } from "react";
-import { DataGrid, DataGridColumn, TreeGridConfig } from "./DataGrid";
-import { useseUpdatingOrders } from "./useUpdatingOrders";
-import { FXOrder, generateTestData } from "./utils";
+import { GridCell, GridCellKind } from "@glideapps/glide-data-grid";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { DataGrid } from "./data-grid/DataGrid.tsx";
+import { usesUpdatingOrders } from "./mock/useUpdatingOrders.ts";
+import { FXOrder, generateTestData } from "./mock/utils.ts";
+import { DataGridColumn } from "./data-grid/DataGridColumn.ts";
+import { TreeGridConfig } from "./hooks/useTreeStructure.ts";
+import { gridTheme } from "./data-grid/static.ts";
 
 export const OrderGrid = () => {
   const [orders, setOrders] = useState<FXOrder[]>([]);
@@ -11,16 +14,88 @@ export const OrderGrid = () => {
     setOrders(generateTestData(12000, 2000));
   }, []);
 
-  useseUpdatingOrders(setOrders, 3000, 7000);
+  usesUpdatingOrders(setOrders, 1500, 5000);
 
-  const columns: DataGridColumn<FXOrder>[] = useMemo(
-    () => [
-      { header: "Order ID", accessorKey: "id", width: 200 },
-      { header: "Status", accessorKey: "status", width: 150 },
+  const [columns, setColumns] = useState<DataGridColumn<FXOrder>[]>([]);
+  const [sortColumnId, setSortColumnId] = useState<string>("createdTimestamp");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+
+  const cancelOrderAndChildren = useCallback((rootOrder: FXOrder) => {
+    setOrders((prevOrders) => {
+      const orderMap = new Map<string, FXOrder>(
+        prevOrders.map((o) => [o.id, o]),
+      );
+      const idsToCancel = new Set<string>();
+
+      const collectIds = (id: string) => {
+        idsToCancel.add(id);
+        const order = orderMap.get(id);
+        order?.childIds.forEach(collectIds);
+      };
+
+      collectIds(rootOrder.id);
+
+      return prevOrders.map((order) => {
+        if (idsToCancel.has(order.id)) {
+          return {
+            ...order,
+            status: "CANCELLED",
+            updatedTimestamp: new Date(),
+          };
+        }
+        return order;
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    setColumns([
       {
-        header: "Created",
-        accessorKey: "createdTimestamp",
+        title: "Order ID",
+        id: "id",
+        width: 200,
+        visible: true,
+        renderer: (value: any, row: FXOrder): GridCell => {
+          const buttons = [];
+          const canCancel =
+            ["NEW", "PARTIALLY_FILLED"].includes(row.status) && row.depth === 0;
+
+          if (canCancel) {
+            buttons.push({
+              backgroundColor: [
+                gridTheme.bgHeaderHovered,
+                gridTheme.accentLight,
+              ],
+              color: [gridTheme.textBubble, gridTheme.textLight],
+              borderColor: gridTheme.accentLight,
+              borderRadius: 1.2,
+              title: `CANCEL`,
+              onClick: () => cancelOrderAndChildren(row),
+            });
+          }
+
+          return {
+            kind: GridCellKind.Custom,
+            allowOverlay: false,
+            readonly: true,
+            copyData: String(value),
+            data: {
+              kind: "tree-view-buttons-cell",
+              text: String(value),
+              uniqueKey: `${row.id}-status`,
+              depth: row.depth,
+              canOpen: false,
+              buttons,
+            },
+          };
+        },
+      },
+      { title: "Status", id: "status", width: 150, visible: true },
+      {
+        title: "Created",
+        id: "createdTimestamp",
         width: 180,
+        visible: true,
         renderer: (value) => ({
           kind: GridCellKind.Text,
           displayData: value instanceof Date ? value.toLocaleString() : "",
@@ -30,9 +105,10 @@ export const OrderGrid = () => {
         }),
       },
       {
-        header: "Updated",
-        accessorKey: "updatedTimestamp",
+        title: "Updated",
+        id: "updatedTimestamp",
         width: 180,
+        visible: true,
         renderer: (value) => ({
           kind: GridCellKind.Text,
           displayData: value instanceof Date ? value.toLocaleString() : "",
@@ -42,9 +118,10 @@ export const OrderGrid = () => {
         }),
       },
       {
-        header: "Quantity",
-        accessorKey: "orderQuantity",
+        title: "Quantity",
+        id: "orderQuantity",
         width: 120,
+        visible: true,
         renderer: (value) => ({
           kind: GridCellKind.Text,
           displayData: value ? value.toLocaleString() : "0",
@@ -54,9 +131,10 @@ export const OrderGrid = () => {
         }),
       },
       {
-        header: "Side",
-        accessorKey: "side",
+        title: "Side",
+        id: "side",
         width: 80,
+        visible: true,
         renderer: (value) => ({
           kind: GridCellKind.Text,
           displayData: String(value),
@@ -66,9 +144,10 @@ export const OrderGrid = () => {
         }),
       },
       {
-        header: "Filled",
-        accessorKey: "filledQuantity",
+        title: "Filled",
+        id: "filledQuantity",
         width: 120,
+        visible: true,
         renderer: (value) => ({
           kind: GridCellKind.Text,
           displayData: value ? value.toLocaleString() : "0",
@@ -78,9 +157,10 @@ export const OrderGrid = () => {
         }),
       },
       {
-        header: "Limit Price",
-        accessorKey: "limitPrice",
+        title: "Limit Price",
+        id: "limitPrice",
         width: 120,
+        visible: true,
         renderer: (value) => ({
           kind: GridCellKind.Text,
           displayData: value ? value.toFixed(4) : "0.0000",
@@ -90,9 +170,10 @@ export const OrderGrid = () => {
         }),
       },
       {
-        header: "Filled Price",
-        accessorKey: "filledPrice",
+        title: "Filled Price",
+        id: "filledPrice",
         width: 120,
+        visible: true,
         renderer: (value) => ({
           kind: GridCellKind.Text,
           displayData: value ? value.toFixed(4) : "-",
@@ -101,12 +182,47 @@ export const OrderGrid = () => {
           readonly: true,
         }),
       },
-      { header: "Trader", accessorKey: "trader", width: 150 },
-      { header: "Venue", accessorKey: "venue", width: 80 },
-      { header: "Account", accessorKey: "account", width: 120 },
-      { header: "Strategy", accessorKey: "strategy", width: 150 },
-    ],
-    []
+      {
+        title: "Trader",
+        id: "trader",
+        width: 150,
+        visible: true,
+        renderer: (value) => ({
+          kind: GridCellKind.Custom,
+          allowOverlay: false,
+          readonly: true,
+          copyData: value,
+          data: {
+            displayData: value,
+            kind: "multiline-text-cell",
+          },
+        }),
+      },
+      { title: "Venue", id: "venue", width: 80, visible: true },
+      { title: "Account", id: "account", width: 120, visible: true },
+      { title: "Strategy", id: "strategy", width: 150, visible: true },
+    ]);
+  }, [cancelOrderAndChildren]);
+
+  const onColumnsChange = useCallback((newColumnState: any[]) => {
+    setColumns((prevColumns) => {
+      return newColumnState.map((state) => {
+        const existingColumn = prevColumns.find((col) => col.id === state.id);
+        return {
+          ...existingColumn,
+          ...state,
+          visible: true, // DataGrid currently assumes visible: true for all columns in this state
+        } as DataGridColumn<FXOrder>;
+      });
+    });
+  }, []);
+
+  const onSortChange = useCallback(
+    (column: any | undefined, direction: "asc" | "desc") => {
+      setSortColumnId(column?.id);
+      setSortDirection(direction);
+    },
+    [],
   );
 
   const treeConfig: TreeGridConfig = useMemo(
@@ -117,17 +233,20 @@ export const OrderGrid = () => {
       childIdsAccessor: "childIds",
       idAccessor: "id",
     }),
-    []
+    [],
   );
 
   return (
     <div style={{ height: "100vh" }}>
       <DataGrid
         data={orders}
+        idKey="id"
         columns={columns}
         treeConfig={treeConfig}
-        defaultSortColumn="createdTimestamp"
-        defaultSortDirection="desc"
+        sortColumn={columns.find((c) => c.id === sortColumnId)}
+        sortDirection={sortDirection}
+        onColumnsChange={onColumnsChange}
+        onSortChange={onSortChange}
       />
     </div>
   );
